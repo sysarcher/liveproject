@@ -135,7 +135,7 @@ async fn fetch_closing_data(
     symbol: &str,
     beginning: &DateTime<Utc>,
     end: &DateTime<Utc>,
-) -> std::io::Result<Vec<f64>> {
+) -> std::io::Result<(String, Vec<f64>)> {
     let provider = yahoo::YahooConnector::new();
 
     let response = provider
@@ -147,9 +147,12 @@ async fn fetch_closing_data(
         .map_err(|_| Error::from(ErrorKind::InvalidData))?;
     if !quotes.is_empty() {
         quotes.sort_by_cached_key(|k| k.timestamp);
-        Ok(quotes.iter().map(|q| q.adjclose as f64).collect())
+        Ok((
+            symbol.to_string(),
+            quotes.iter().map(|q| q.adjclose as f64).collect(),
+        ))
     } else {
-        Ok(vec![])
+        Ok(("".to_string(), vec![]))
     }
 }
 
@@ -169,7 +172,7 @@ async fn main() -> std::io::Result<()> {
     let results = join_all(handles).await;
 
     for result in results {
-        let closes = result.unwrap();
+        let (symbol, closes) = result.unwrap();
         if !closes.is_empty() {
             // min/max of the period. unwrap() because those are Option types
             let period_max: f64 = max(&closes).unwrap();
@@ -179,11 +182,10 @@ async fn main() -> std::io::Result<()> {
             let sma = n_window_sma(30, &closes).unwrap_or_default();
 
             // a simple way to output CSV data
-            println!("DATA: {:?} \n\n", *closes.last().unwrap());
             println!(
-                "{},{{}},${:.2},{:.2}%,${:.2},${:.2},${:.2}",
+                "{},{},${:.2},{:.2}%,${:.2},${:.2},${:.2}",
                 from.to_rfc3339(),
-                //symbol,
+                symbol,
                 last_price,
                 pct_change * 100.0,
                 period_min,
