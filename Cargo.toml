@@ -7,6 +7,7 @@ version = "0.1.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+tokio = { version = "1", features = ["full"] }
 chrono = { version = "0.4", features = ["serde"] }
 clap = "3.0.0-beta.2"
-yahoo_finance_api = { version = "1.1", features = ["blocking"] }
+yahoo_finance_api = { version = "1.1" }

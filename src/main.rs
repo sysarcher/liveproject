@@ -1,6 +1,7 @@
 use chrono::prelude::*;
 use clap::Clap;
 use std::io::{Error, ErrorKind};
+use tokio;
 use yahoo_finance_api as yahoo;
 
 #[derive(Clap)]
@@ -129,7 +130,7 @@ fn min(series: &[f64]) -> Option<f64> {
 ///
 /// Retrieve data from a data source and extract the closing prices. Errors during download are mapped onto io::Errors as InvalidData.
 ///
-fn fetch_closing_data(
+async fn fetch_closing_data(
     symbol: &str,
     beginning: &DateTime<Utc>,
     end: &DateTime<Utc>,
@@ -138,6 +139,7 @@ fn fetch_closing_data(
 
     let response = provider
         .get_quote_history(symbol, *beginning, *end)
+        .await
         .map_err(|_| Error::from(ErrorKind::InvalidData))?;
     let mut quotes = response
         .quotes()
@@ -150,7 +152,8 @@ fn fetch_closing_data(
     }
 }
 
-fn main() -> std::io::Result<()> {
+#[tokio::main]
+async fn main() -> std::io::Result<()> {
     let opts = Opts::parse();
     let from: DateTime<Utc> = opts.from.parse().expect("Couldn't parse 'from' date");
     let to = Utc::now();
@@ -158,7 +161,7 @@ fn main() -> std::io::Result<()> {
     // a simple way to output a CSV header
     println!("period start,symbol,price,change %,min,max,30d avg");
     for symbol in opts.symbols.split(',') {
-        let closes = fetch_closing_data(&symbol, &from, &to)?;
+        let closes = fetch_closing_data(&symbol, &from, &to).await?;
         if !closes.is_empty() {
             // min/max of the period. unwrap() because those are Option types
             let period_max: f64 = max(&closes).unwrap();
