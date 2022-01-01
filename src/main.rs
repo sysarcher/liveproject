@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use chrono::prelude::*;
 use clap::Clap;
 use futures::future::join_all;
@@ -21,6 +22,7 @@ struct Opts {
 ///
 /// A trait to provide a common interface for all signal calculations.
 ///
+#[async_trait]
 trait StockSignal {
     ///
     /// The signal's data type.
@@ -34,40 +36,44 @@ trait StockSignal {
     ///
     /// The signal (using the provided type) or `None` on error/invalid data.
     ///
-    fn calculate(&self, series: &[f64]) -> Option<Self::SignalType>;
+    async fn calculate(&self, series: &[f64]) -> Option<Self::SignalType>;
 }
 
 struct PriceDifference;
+#[async_trait]
 impl StockSignal for PriceDifference {
     type SignalType = (f64, f64);
-    fn calculate(&self, series: &[f64]) -> Option<Self::SignalType> {
-        price_diff(&series)
+    async fn calculate(&self, series: &[f64]) -> Option<Self::SignalType> {
+        price_diff(&series).await
     }
 }
 
 struct MinPrice;
+#[async_trait]
 impl StockSignal for MinPrice {
     type SignalType = f64;
-    fn calculate(&self, series: &[f64]) -> Option<Self::SignalType> {
-        min(&series)
+    async fn calculate(&self, series: &[f64]) -> Option<Self::SignalType> {
+        min(&series).await
     }
 }
 
 struct MaxPrice;
+#[async_trait]
 impl StockSignal for MaxPrice {
     type SignalType = f64;
-    fn calculate(&self, series: &[f64]) -> Option<Self::SignalType> {
-        max(&series)
+    async fn calculate(&self, series: &[f64]) -> Option<Self::SignalType> {
+        max(&series).await
     }
 }
 
 struct WindowedSMA {
     window_size: usize,
 }
+#[async_trait]
 impl StockSignal for WindowedSMA {
     type SignalType = Vec<f64>;
-    fn calculate(&self, series: &[f64]) -> Option<Self::SignalType> {
-        n_window_sma(self.window_size, &series)
+    async fn calculate(&self, series: &[f64]) -> Option<Self::SignalType> {
+        n_window_sma(self.window_size, &series).await
     }
 }
 ///
@@ -77,7 +83,7 @@ impl StockSignal for WindowedSMA {
 ///
 /// A tuple `(absolute, relative)` difference.
 ///
-fn price_diff(a: &[f64]) -> Option<(f64, f64)> {
+async fn price_diff(a: &[f64]) -> Option<(f64, f64)> {
     if !a.is_empty() {
         // unwrap is safe here even if first == last
         let (first, last) = (a.first().unwrap(), a.last().unwrap());
@@ -93,7 +99,7 @@ fn price_diff(a: &[f64]) -> Option<(f64, f64)> {
 ///
 /// Window function to create a simple moving average
 ///
-fn n_window_sma(n: usize, series: &[f64]) -> Option<Vec<f64>> {
+async fn n_window_sma(n: usize, series: &[f64]) -> Option<Vec<f64>> {
     if !series.is_empty() && n > 1 {
         Some(
             series
@@ -109,7 +115,7 @@ fn n_window_sma(n: usize, series: &[f64]) -> Option<Vec<f64>> {
 ///
 /// Find the maximum in a series of f64
 ///
-fn max(series: &[f64]) -> Option<f64> {
+async fn max(series: &[f64]) -> Option<f64> {
     if series.is_empty() {
         None
     } else {
@@ -120,7 +126,7 @@ fn max(series: &[f64]) -> Option<f64> {
 ///
 /// Find the minimum in a series of f64
 ///
-fn min(series: &[f64]) -> Option<f64> {
+async fn min(series: &[f64]) -> Option<f64> {
     if series.is_empty() {
         None
     } else {
@@ -175,11 +181,11 @@ async fn main() -> std::io::Result<()> {
         let (symbol, closes) = result.unwrap();
         if !closes.is_empty() {
             // min/max of the period. unwrap() because those are Option types
-            let period_max: f64 = max(&closes).unwrap();
-            let period_min: f64 = min(&closes).unwrap();
+            let period_max: f64 = max(&closes).await.unwrap();
+            let period_min: f64 = min(&closes).await.unwrap();
             let last_price = *closes.last().unwrap_or(&0.0);
-            let (_, pct_change) = price_diff(&closes).unwrap_or((0.0, 0.0));
-            let sma = n_window_sma(30, &closes).unwrap_or_default();
+            let (_, pct_change) = price_diff(&closes).await.unwrap_or((0.0, 0.0));
+            let sma = n_window_sma(30, &closes).await.unwrap_or_default();
 
             // a simple way to output CSV data
             println!(
@@ -202,18 +208,25 @@ mod tests {
     #![allow(non_snake_case)]
     use super::*;
 
+    use tokio_test;
+    macro_rules! aw {
+        ($e:expr) => {
+            tokio_test::block_on($e)
+        };
+    }
+
     #[test]
     fn test_PriceDifference_calculate() {
         let signal = PriceDifference {};
-        assert_eq!(signal.calculate(&[]), None);
-        assert_eq!(signal.calculate(&[1.0]), Some((0.0, 0.0)));
-        assert_eq!(signal.calculate(&[1.0, 0.0]), Some((-1.0, -1.0)));
+        assert_eq!(aw!(signal.calculate(&[])), None);
+        assert_eq!(aw!(signal.calculate(&[1.0])), Some((0.0, 0.0)));
+        assert_eq!(aw!(signal.calculate(&[1.0, 0.0])), Some((-1.0, -1.0)));
         assert_eq!(
-            signal.calculate(&[2.0, 3.0, 5.0, 6.0, 1.0, 2.0, 10.0]),
+            aw!(signal.calculate(&[2.0, 3.0, 5.0, 6.0, 1.0, 2.0, 10.0])),
             Some((8.0, 4.0))
         );
         assert_eq!(
-            signal.calculate(&[0.0, 3.0, 5.0, 6.0, 1.0, 2.0, 1.0]),
+            aw!(signal.calculate(&[0.0, 3.0, 5.0, 6.0, 1.0, 2.0, 1.0])),
             Some((1.0, 1.0))
         );
     }
@@ -221,15 +234,15 @@ mod tests {
     #[test]
     fn test_MinPrice_calculate() {
         let signal = MinPrice {};
-        assert_eq!(signal.calculate(&[]), None);
-        assert_eq!(signal.calculate(&[1.0]), Some(1.0));
-        assert_eq!(signal.calculate(&[1.0, 0.0]), Some(0.0));
+        assert_eq!(aw!(signal.calculate(&[])), None);
+        assert_eq!(aw!(signal.calculate(&[1.0])), Some(1.0));
+        assert_eq!(aw!(signal.calculate(&[1.0, 0.0])), Some(0.0));
         assert_eq!(
-            signal.calculate(&[2.0, 3.0, 5.0, 6.0, 1.0, 2.0, 10.0]),
+            aw!(signal.calculate(&[2.0, 3.0, 5.0, 6.0, 1.0, 2.0, 10.0])),
             Some(1.0)
         );
         assert_eq!(
-            signal.calculate(&[0.0, 3.0, 5.0, 6.0, 1.0, 2.0, 1.0]),
+            aw!(signal.calculate(&[0.0, 3.0, 5.0, 6.0, 1.0, 2.0, 1.0])),
             Some(0.0)
         );
     }
@@ -237,15 +250,15 @@ mod tests {
     #[test]
     fn test_MaxPrice_calculate() {
         let signal = MaxPrice {};
-        assert_eq!(signal.calculate(&[]), None);
-        assert_eq!(signal.calculate(&[1.0]), Some(1.0));
-        assert_eq!(signal.calculate(&[1.0, 0.0]), Some(1.0));
+        assert_eq!(aw!(signal.calculate(&[])), None);
+        assert_eq!(aw!(signal.calculate(&[1.0])), Some(1.0));
+        assert_eq!(aw!(signal.calculate(&[1.0, 0.0])), Some(1.0));
         assert_eq!(
-            signal.calculate(&[2.0, 3.0, 5.0, 6.0, 1.0, 2.0, 10.0]),
+            aw!(signal.calculate(&[2.0, 3.0, 5.0, 6.0, 1.0, 2.0, 10.0])),
             Some(10.0)
         );
         assert_eq!(
-            signal.calculate(&[0.0, 3.0, 5.0, 6.0, 1.0, 2.0, 1.0]),
+            aw!(signal.calculate(&[0.0, 3.0, 5.0, 6.0, 1.0, 2.0, 1.0])),
             Some(6.0)
         );
     }
@@ -256,14 +269,14 @@ mod tests {
 
         let signal = WindowedSMA { window_size: 3 };
         assert_eq!(
-            signal.calculate(&series),
+            aw!(signal.calculate(&series)),
             Some(vec![3.9333333333333336, 5.433333333333334, 5.5])
         );
 
         let signal = WindowedSMA { window_size: 5 };
-        assert_eq!(signal.calculate(&series), Some(vec![4.6]));
+        assert_eq!(aw!(signal.calculate(&series)), Some(vec![4.6]));
 
         let signal = WindowedSMA { window_size: 10 };
-        assert_eq!(signal.calculate(&series), Some(vec![]));
+        assert_eq!(aw!(signal.calculate(&series)), Some(vec![]));
     }
 }
