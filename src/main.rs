@@ -179,7 +179,10 @@ async fn main() -> std::io::Result<()> {
         let results = join_all(handles).await;
 
         for result in results {
-            let (symbol, closes) = result.unwrap();
+            let (symbol, closes) = match result {
+                Ok((x, y)) => (x, y),
+                Err(_e) => ("".to_string(), Vec::new()),
+            };
             if !closes.is_empty() {
                 // min/max of the period. unwrap() because those are Option types
                 let period_max: f64 = max(&closes).await.unwrap();
