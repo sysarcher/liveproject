@@ -170,37 +170,40 @@ async fn main() -> std::io::Result<()> {
 
     // a simple way to output a CSV header
     println!("period start,symbol,price,change %,min,max,30d avg");
-    let mut handles = Vec::new();
-    for symbol in opts.symbols.split(',') {
-        let closes = fetch_closing_data(&symbol, &from, &to);
-        handles.push(closes);
-    }
-    let results = join_all(handles).await;
-
-    for result in results {
-        let (symbol, closes) = result.unwrap();
-        if !closes.is_empty() {
-            // min/max of the period. unwrap() because those are Option types
-            let period_max: f64 = max(&closes).await.unwrap();
-            let period_min: f64 = min(&closes).await.unwrap();
-            let last_price = *closes.last().unwrap_or(&0.0);
-            let (_, pct_change) = price_diff(&closes).await.unwrap_or((0.0, 0.0));
-            let sma = n_window_sma(30, &closes).await.unwrap_or_default();
-
-            // a simple way to output CSV data
-            println!(
-                "{},{},${:.2},{:.2}%,${:.2},${:.2},${:.2}",
-                from.to_rfc3339(),
-                symbol,
-                last_price,
-                pct_change * 100.0,
-                period_min,
-                period_max,
-                sma.last().unwrap_or(&0.0)
-            );
+    loop {
+        let mut handles = Vec::new();
+        for symbol in opts.symbols.split(',') {
+            let closes = fetch_closing_data(&symbol, &from, &to);
+            handles.push(closes);
         }
+        let results = join_all(handles).await;
+
+        for result in results {
+            let (symbol, closes) = result.unwrap();
+            if !closes.is_empty() {
+                // min/max of the period. unwrap() because those are Option types
+                let period_max: f64 = max(&closes).await.unwrap();
+                let period_min: f64 = min(&closes).await.unwrap();
+                let last_price = *closes.last().unwrap_or(&0.0);
+                let (_, pct_change) = price_diff(&closes).await.unwrap_or((0.0, 0.0));
+                let sma = n_window_sma(30, &closes).await.unwrap_or_default();
+
+                // a simple way to output CSV data
+                println!(
+                    "{},{},${:.2},{:.2}%,${:.2},${:.2},${:.2}",
+                    from.to_rfc3339(),
+                    symbol,
+                    last_price,
+                    pct_change * 100.0,
+                    period_min,
+                    period_max,
+                    sma.last().unwrap_or(&0.0)
+                );
+            }
+        }
+        tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
     }
-    Ok(())
+    //Ok(())
 }
 
 #[cfg(test)]
